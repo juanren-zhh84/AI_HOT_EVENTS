@@ -1,330 +1,235 @@
-﻿# app/db/models.py
+# app/db/models.py
+"""
+数据库 ORM 模型。
 
-import uuid
-from datetime import datetime
+ORM 可以理解为“数据库表的 Python 版本”：
+1. 数据库里的 repositories 表，对应这里的 Repository 类。
+2. 数据库里的 star_snapshots 表，对应这里的 StarSnapshot 类。
+3. 数据库里的 jobs 表，对应这里的 Job 类。
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    ForeignKey,
-    Integer,
-    JSON,
-    String,
-    Text,
-    UniqueConstraint,
-    func,
+为什么要写 ORM 模型？
+以后业务代码可以用 Python 对象操作数据库，不需要到处手写 SQL。
+例如创建仓库时，可以写 Repository(...)，再 db.add(repository)。
+"""
+
+import uuid  # 用来生成 UUID 字符串，作为每条数据的主键 id。
+from datetime import datetime  # 用来声明日期时间字段，例如 created_at、updated_at。
+
+from sqlalchemy import (  # SQLAlchemy 提供数据库字段类型、外键、约束和 SQL 函数。
+    Boolean,  # 用来映射 MySQL 的 TINYINT(1)，在 Python 里表现为 True/False。
+    DateTime,  # 用来映射 MySQL 的 DATETIME 字段。
+    ForeignKey,  # 用来声明外键关系，例如快照表关联仓库表。
+    Integer,  # 用来映射 MySQL 的 INT 字段，例如 stars、forks。
+    JSON,  # 用来映射 MySQL 的 JSON 字段，例如 topics、tags、payload。
+    String,  # 用来映射 MySQL 的 VARCHAR/CHAR 字段。
+    Text,  # 用来映射 MySQL 的 TEXT 字段，适合保存较长文本。
+    UniqueConstraint,  # 用来声明联合唯一约束，避免重复快照。
+    func,  # 用来调用数据库函数，例如 func.now() 生成当前时间。
 )
-from sqlalchemy.ext.mutable import MutableDict, MutableList
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.ext.mutable import MutableDict, MutableList  # 让 JSON 字典/列表的内部修改能被 ORM 识别。
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship  # SQLAlchemy 2.x 推荐的 ORM 声明方式。
 
 
-def uuid_str() -> str:
+def uuid_str() -> str:  # 定义一个生成 UUID 字符串的函数，给主键默认值使用。
     """
-    鐢熸垚涓€涓?UUID 瀛楃涓层€?
+    生成一个 UUID 字符串。
 
-    涓轰粈涔堣鑷繁鐢熸垚锛?
-    浣犵殑 MySQL 琛ㄩ噷铏界劧鍐欎簡 DEFAULT (UUID())锛?
-    浣嗗鏋滆鏁版嵁搴撶敓鎴?id锛孭ython 浠ｇ爜鏈夋椂鍊欎笉鑳界珛鍒绘嬁鍒拌繖涓?id銆?
-
-    ORM 閲岃嚜宸辩敓鎴?id 鐨勫ソ澶勬槸锛?
-    1. 鎻掑叆鏁版嵁搴撳墠锛孭ython 瀵硅薄灏卞凡缁忔湁 id銆?
-    2. 鍚庨潰鍒涘缓鍏宠仈鏁版嵁锛屾瘮濡?star_snapshots锛岄渶瑕?repository_id锛屼細鏇存柟渚裤€?
-    3. 涓嶄緷璧栨煇涓?MySQL 鐗堟湰瀵?UUID() 榛樿鍊肩殑鏀寔銆?
+    为什么不完全依赖 MySQL 的 DEFAULT (UUID())？
+    1. Python 端先生成 id，创建对象后立刻就能拿到主键。
+    2. 后面创建关联数据时，例如 StarSnapshot.repository_id，会更方便。
+    3. 不依赖具体 MySQL 版本是否支持表达式默认值。
     """
-    return str(uuid.uuid4())
+    return str(uuid.uuid4())  # uuid.uuid4() 生成随机 UUID，str(...) 把它转成数据库 CHAR(36) 能保存的字符串。
 
 
-class Base(DeclarativeBase):
+class Base(DeclarativeBase):  # 所有 ORM 模型都继承这个 Base，SQLAlchemy 才知道这些类是表模型。
     """
-    鎵€鏈?ORM 妯″瀷鐨勫熀绫汇€?
+    ORM 基类。
 
-    浣犲彲浠ョ悊瑙ｄ负锛?
-    Repository銆丼tarSnapshot銆丣ob 閮借缁ф壙 Base锛?
-    SQLAlchemy 鎵嶇煡閬撳畠浠槸鏁版嵁搴撹〃妯″瀷銆?
-
-    DeclarativeBase 鏄?SQLAlchemy 2.x 鎺ㄨ崘鐨勬柊鍐欐硶銆?
+    Repository、StarSnapshot、Job 都继承 Base。
+    继承后，SQLAlchemy 会把这些类纳入 ORM 管理。
     """
-    pass
+    pass  # Base 本身不需要字段，只作为所有模型的公共父类。
 
 
-class Repository(Base):
+class Repository(Base):  # Repository 类对应 repositories 表。
     """
-    repositories 琛ㄧ殑 ORM 妯″瀷銆?
+    repositories 表的 ORM 模型。
 
-    杩欏紶琛ㄧ敤鏉ヤ繚瀛?GitHub 浠撳簱鐨勫熀纭€淇℃伅锛?
-    渚嬪 openai/openai-python 鐨勫悕绉般€佹弿杩般€乻tars銆乫orks 绛夈€?
+    这张表保存 GitHub 仓库的基础信息：
+    仓库名、描述、链接、语言、stars、forks、issues、是否启用监控等。
     """
 
-    # 杩欎釜绫诲搴旀暟鎹簱閲岀殑 repositories 琛?
-    __tablename__ = "repositories"
+    __tablename__ = "repositories"  # 告诉 SQLAlchemy：这个类对应数据库里的 repositories 表。
 
-    # 涓婚敭 id锛屽搴?CHAR(36)
-    # default=uuid_str 琛ㄧず鍒涘缓 Repository 瀵硅薄鏃惰嚜鍔ㄧ敓鎴?UUID
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 主键，使用 UUID 字符串，避免不同数据之间 id 冲突。
 
-    # GitHub 浠撳簱 owner锛屾瘮濡?openai/openai-python 閲岀殑 openai
-    owner: Mapped[str] = mapped_column(String(255), nullable=False)
+    owner: Mapped[str] = mapped_column(String(255), nullable=False)  # GitHub 仓库拥有者，例如 openai/openai-python 里的 openai。
 
-    # GitHub 浠撳簱鍚嶏紝姣斿 openai/openai-python 閲岀殑 openai-python
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)  # GitHub 仓库名称，例如 openai/openai-python 里的 openai-python。
 
-    # 浠撳簱瀹屾暣鍚嶏紝姣斿 openai/openai-python
-    # unique=True 琛ㄧず鏁版嵁搴撻噷涓嶈兘閲嶅鐩戞帶鍚屼竴涓粨搴?
-    full_name: Mapped[str] = mapped_column(String(511), nullable=False, unique=True)
+    full_name: Mapped[str] = mapped_column(String(511), nullable=False, unique=True)  # 仓库完整名 owner/repo，unique=True 防止重复添加同一个仓库。
 
-    # GitHub 椤甸潰鍦板潃锛屾瘮濡?https://github.com/openai/openai-python
-    html_url: Mapped[str] = mapped_column(Text, nullable=False)
+    html_url: Mapped[str] = mapped_column(Text, nullable=False)  # GitHub 仓库网页地址，不能为空，因为后续邮件和列表需要跳转链接。
 
-    # 椤圭洰涓婚〉锛屾湁浜涗粨搴撴病鏈夛紝鎵€浠ュ厑璁镐负绌?
-    homepage: Mapped[str | None] = mapped_column(Text)
+    homepage: Mapped[str | None] = mapped_column(Text)  # 项目主页地址，有些仓库没有主页，所以允许为 None。
 
-    # 浠撳簱鎻忚堪锛屾湁浜涗粨搴撲篃鍙兘娌℃湁锛屾墍浠ュ厑璁镐负绌?
-    description: Mapped[str | None] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)  # 仓库描述，有些仓库没有 description，所以允许为 None。
 
-    # 涓昏瑷€锛屾瘮濡?Python銆乀ypeScript銆丟o
-    primary_language: Mapped[str | None] = mapped_column(String(100))
+    primary_language: Mapped[str | None] = mapped_column(String(100))  # GitHub 识别出的主语言，例如 Python、TypeScript；有些仓库可能没有语言。
 
-    # topics 鏄?JSON 鏁扮粍锛屾瘮濡?["ai", "python", "sdk"]
-    #
-    # 涓轰粈涔堢敤 MutableList.as_mutable(JSON)锛?
-    # 鏅€?JSON 瀛楁濡傛灉浣犺繖鏍锋敼锛?
-    # repo.topics.append("ai")
-    # SQLAlchemy 鍙兘涓嶇煡閬撳畠鍙樹簡銆?
-    #
-    # MutableList 鍙互璁?SQLAlchemy 鎰熺煡鍒楄〃鍐呴儴鍙樺寲銆?
-    topics: Mapped[list[str]] = mapped_column(
-        MutableList.as_mutable(JSON),
-        nullable=False,
-        default=list,
+    topics: Mapped[list[str]] = mapped_column(  # topics 是 GitHub 仓库标签列表，例如 ["ai", "python"]。
+        MutableList.as_mutable(JSON),  # JSON 列表需要 MutableList，否则 repo.topics.append(...) 这种内部变化可能不会被 ORM 检测到。
+        nullable=False,  # 数据库中不允许为空，保证业务代码总能拿到列表。
+        default=list,  # 默认给空列表，避免使用 None 后还要额外判断。
     )
 
-    # 璁稿彲璇佸悕绉帮紝姣斿 MIT銆丄pache-2.0
-    license_name: Mapped[str | None] = mapped_column(String(255))
+    license_name: Mapped[str | None] = mapped_column(String(255))  # 许可证名称，例如 MIT、Apache-2.0；仓库可能没有许可证。
 
-    # 褰撳墠 stars 鏁?
-    stars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 当前总 star 数，默认 0，便于排序和热点计算。
 
-    # 褰撳墠 forks 鏁?
-    forks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    forks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 当前 fork 数，默认 0，作为项目活跃度参考。
 
-    # 褰撳墠 watchers 鏁?
-    watchers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    watchers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 当前 watchers 数，默认 0，和 GitHub 返回字段保持对应。
 
-    # 褰撳墠 open issues 鏁?
-    open_issues: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    open_issues: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 当前 open issue 数，默认 0，后续可用于活跃度评分。
 
-    # 鏄惁褰掓。
-    # MySQL 閲屾槸 TINYINT(1)锛孫RM 閲屽彲浠ュ啓鎴?Boolean
-    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # 是否归档；归档项目通常不适合进入热点推荐。
 
-    # 鏄惁涓嶅彲鐢?
-    disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    disabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # 是否被 GitHub 禁用；禁用项目后续采集应跳过。
 
-    # 鏄惁鍚敤鐩戞帶
-    # 浠ュ悗濡傛灉浣犳殏鍋滄煇涓粨搴擄紝灏辨妸 enabled 鏀规垚 False
-    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # 本系统是否启用监控；用户可以暂停某个仓库。
 
-    # 浠撳簱鏉ユ簮锛屾瘮濡?manual銆乬ithub_search銆乼opic
-    source: Mapped[str] = mapped_column(String(100), nullable=False, default="manual")
+    source: Mapped[str] = mapped_column(String(100), nullable=False, default="manual")  # 仓库来源，例如 manual、github_search、topic。
 
-    # 鏈湴鏍囩锛屾瘮濡?["ai", "sdk"]
-    tags: Mapped[list[str]] = mapped_column(
-        MutableList.as_mutable(JSON),
-        nullable=False,
-        default=list,
+    tags: Mapped[list[str]] = mapped_column(  # 本系统自己的标签，不等同于 GitHub topics。
+        MutableList.as_mutable(JSON),  # JSON 列表使用 MutableList，确保修改列表内容时 ORM 能识别变化。
+        nullable=False,  # 不允许为空，避免业务代码处理 None。
+        default=list,  # 默认空列表，表示还没有人为打标签。
     )
 
-    # GitHub 涓婄殑鍒涘缓鏃堕棿
-    github_created_at: Mapped[datetime | None] = mapped_column(DateTime)
+    github_created_at: Mapped[datetime | None] = mapped_column(DateTime)  # 仓库在 GitHub 上的创建时间，来自 GitHub API 的 created_at。
 
-    # GitHub 涓婄殑鏇存柊鏃堕棿
-    github_updated_at: Mapped[datetime | None] = mapped_column(DateTime)
+    github_updated_at: Mapped[datetime | None] = mapped_column(DateTime)  # 仓库在 GitHub 上的更新时间，来自 GitHub API 的 updated_at。
 
-    # 鏈€杩?push 鏃堕棿
-    last_pushed_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_pushed_at: Mapped[datetime | None] = mapped_column(DateTime)  # 仓库最近一次 push 时间，后续可判断项目是否仍活跃。
 
-    # 鏈郴缁熸渶杩戜竴娆￠噰闆嗘椂闂?
-    last_collected_at: Mapped[datetime | None] = mapped_column(DateTime)
+    last_collected_at: Mapped[datetime | None] = mapped_column(DateTime)  # 本系统最近一次成功采集该仓库信息的时间。
 
-    # 鏈郴缁熷垱寤鸿繖鏉¤褰曠殑鏃堕棿
-    #
-    # server_default=func.now() 琛ㄧず锛?
-    # 濡傛灉 Python 娌′紶 created_at锛屽氨璁╂暟鎹簱鑷姩濉綋鍓嶆椂闂淬€?
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
+    created_at: Mapped[datetime] = mapped_column(  # 本系统创建这条仓库记录的时间。
+        DateTime,  # 使用 DATETIME 类型保存时间。
+        nullable=False,  # 创建时间必须存在。
+        server_default=func.now(),  # 如果 Python 没传值，就由数据库自动填当前时间。
     )
 
-    # 鏈郴缁熸洿鏂拌繖鏉¤褰曠殑鏃堕棿
-    #
-    # onupdate=func.now() 琛ㄧず锛?
-    # ORM 鏇存柊杩欐潯璁板綍鏃讹紝鑷姩鍒锋柊 updated_at銆?
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+    updated_at: Mapped[datetime] = mapped_column(  # 本系统最后更新这条仓库记录的时间。
+        DateTime,  # 使用 DATETIME 类型保存时间。
+        nullable=False,  # 更新时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
+        onupdate=func.now(),  # ORM 更新记录时自动刷新为当前时间。
     )
 
-    # relationship 琛ㄧず鈥滃璞′箣闂寸殑鍏崇郴鈥?
-    #
-    # 涓€涓?Repository 鍙互鏈夊鏉?StarSnapshot銆?
-    #
-    # 浠ュ悗浣犲彲浠ヨ繖鏍疯闂細
-    # repo.snapshots
-    #
-    # back_populates 瑕佸拰 StarSnapshot 閲岀殑 repository 瀵瑰簲銆?
-    snapshots: Mapped[list["StarSnapshot"]] = relationship(
-        back_populates="repository",
-        cascade="all, delete-orphan",
+    snapshots: Mapped[list["StarSnapshot"]] = relationship(  # 一个仓库可以有多条星标快照。
+        back_populates="repository",  # 和 StarSnapshot.repository 配对，形成双向关系。
+        cascade="all, delete-orphan",  # 删除仓库对象时，ORM 层也会删除它关联的快照对象。
     )
 
 
-class StarSnapshot(Base):
+class StarSnapshot(Base):  # StarSnapshot 类对应 star_snapshots 表。
     """
-    star_snapshots 琛ㄧ殑 ORM 妯″瀷銆?
+    star_snapshots 表的 ORM 模型。
 
-    杩欏紶琛ㄧ敤鏉ヤ繚瀛樻煇涓粨搴撳湪鏌愪釜鏃堕棿鐐圭殑 stars 蹇収銆?
-    姣斿锛?
-    2026-06-02 10:00锛宱penai/openai-python 鏈?25000 stars銆?
+    这张表保存仓库在某个时间点的指标快照。
+    例如某仓库在 2026-06-23 10:00 有 25000 stars。
+    后续 24 小时增长、7 天增长，都依赖这张表计算。
     """
 
-    __tablename__ = "star_snapshots"
+    __tablename__ = "star_snapshots"  # 告诉 SQLAlchemy：这个类对应数据库里的 star_snapshots 表。
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 快照主键，使用 UUID 字符串。
 
-    # repository_id 鏄閿紝鎸囧悜 repositories.id
-    #
-    # ForeignKey 鐨勪綔鐢細
-    # 淇濊瘉杩欐潯蹇収涓€瀹氬睘浜庢煇涓瓨鍦ㄧ殑浠撳簱銆?
-    #
-    # ondelete="CASCADE" 琛ㄧず锛?
-    # 濡傛灉鏌愪釜浠撳簱琚垹闄わ紝瀹冪殑蹇収涔熶竴璧峰垹闄ゃ€?
-    repository_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("repositories.id", ondelete="CASCADE", onupdate="CASCADE"),
-        nullable=False,
+    repository_id: Mapped[str] = mapped_column(  # 外键字段，表示这条快照属于哪个仓库。
+        String(36),  # 类型和 repositories.id 保持一致。
+        ForeignKey("repositories.id", ondelete="CASCADE", onupdate="CASCADE"),  # 外键指向 repositories.id，仓库删除或更新 id 时同步处理。
+        nullable=False,  # 快照必须属于某个仓库，不能没有 repository_id。
     )
 
-    stars: Mapped[int] = mapped_column(Integer, nullable=False)
-    forks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    watchers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    open_issues: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    stars: Mapped[int] = mapped_column(Integer, nullable=False)  # 快照时刻的 star 数，不能为空，因为热点计算必须依赖它。
 
-    # 鏁版嵁鏉ユ簮锛岄粯璁ゆ潵鑷?GitHub REST API
-    source: Mapped[str] = mapped_column(String(100), nullable=False, default="github_rest")
+    forks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 快照时刻的 fork 数，默认 0。
 
-    # 蹇収鏃堕棿
-    # 濡傛灉 Python 娌′紶锛屽氨璁╂暟鎹簱濉綋鍓嶆椂闂?
-    snapshot_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
+    watchers: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 快照时刻的 watcher 数，默认 0。
+
+    open_issues: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 快照时刻的 open issue 数，默认 0。
+
+    source: Mapped[str] = mapped_column(String(100), nullable=False, default="github_rest")  # 快照数据来源，默认来自 GitHub REST API。
+
+    snapshot_at: Mapped[datetime] = mapped_column(  # 这条快照对应的采集时间点。
+        DateTime,  # 使用 DATETIME 保存时间点。
+        nullable=False,  # 快照时间必须存在，否则无法计算时间窗口增长。
+        server_default=func.now(),  # 如果 Python 没传采集时间，就由数据库填当前时间。
     )
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
+    created_at: Mapped[datetime] = mapped_column(  # 本系统创建这条快照记录的时间。
+        DateTime,  # 使用 DATETIME 类型。
+        nullable=False,  # 创建时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
     )
 
-    # 鍙嶅悜鍏崇郴锛氳繖鏉″揩鐓у睘浜庡摢涓粨搴?
-    #
-    # 浠ュ悗浣犲彲浠ヨ繖鏍疯闂細
-    # snapshot.repository
-    repository: Mapped[Repository] = relationship(back_populates="snapshots")
+    repository: Mapped[Repository] = relationship(back_populates="snapshots")  # 反向关联到 Repository，方便通过 snapshot.repository 访问所属仓库。
 
-    # 澶嶅悎鍞竴绾︽潫
-    #
-    # 琛ㄧず鍚屼竴涓粨搴撳湪鍚屼竴涓?snapshot_at 鏃堕棿鐐瑰彧鑳芥湁涓€鏉″揩鐓с€?
-    # 杩欐牱鍙互閬垮厤閲嶅閲囬泦鏃舵彃鍏ラ噸澶嶆暟鎹€?
-    __table_args__ = (
-        UniqueConstraint(
-            "repository_id",
-            "snapshot_at",
-            name="uq_star_snapshots_repo_time",
+    __table_args__ = (  # 表级配置，用来声明联合唯一约束。
+        UniqueConstraint(  # 同一个仓库在同一个快照时间只能有一条记录，避免重复采集插入重复数据。
+            "repository_id",  # 联合唯一约束的第一个字段：仓库 id。
+            "snapshot_at",  # 联合唯一约束的第二个字段：快照时间。
+            name="uq_star_snapshots_repo_time",  # 约束名称，和建表 SQL 保持一致，方便排查数据库错误。
         ),
     )
 
 
-class Job(Base):
+class Job(Base):  # Job 类对应 jobs 表。
     """
-    jobs 琛ㄧ殑 ORM 妯″瀷銆?
+    jobs 表的 ORM 模型。
 
-    杩欏紶琛ㄧ敤鏉ヨ褰曞紓姝ヤ换鍔℃垨鎵嬪姩瑙﹀彂浠诲姟銆?
-    姣斿锛?
-    - GitHub 浠撳簱閲囬泦浠诲姟
-    - 鏄熸爣蹇収浠诲姟
-    - 鐑偣椤圭洰璁＄畻浠诲姟
-    - 閭欢鍙戦€佷换鍔?
+    这张表记录后台任务或手动触发任务。
+    例如仓库采集任务、星标快照任务、热点计算任务、邮件发送任务。
     """
 
-    __tablename__ = "jobs"
+    __tablename__ = "jobs"  # 告诉 SQLAlchemy：这个类对应数据库里的 jobs 表。
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 任务主键，使用 UUID 字符串。
 
-    # 鏁版嵁搴撳瓧娈靛悕鍙?type銆?
-    #
-    # 浣嗘槸 Python 閲?type 鏄唴缃嚱鏁板悕銆?
-    # 涓轰簡閬垮厤娣锋穯锛孭ython 灞炴€у悕鐢?job_type锛?
-    # 浣?mapped_column("type") 琛ㄧず瀹冨疄闄呭搴旀暟鎹簱閲岀殑 type 瀛楁銆?
-    job_type: Mapped[str] = mapped_column("type", String(50), nullable=False)
+    job_type: Mapped[str] = mapped_column("type", String(50), nullable=False)  # Python 属性叫 job_type，但数据库字段叫 type，避免和 Python 内置 type 混淆。
 
-    # 浠诲姟鐘舵€侊細
-    # pending    绛夊緟鎵ц
-    # running    鎵ц涓?
-    # succeeded  鎵ц鎴愬姛
-    # failed     鎵ц澶辫触
-    # cancelled  宸插彇娑?
-    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # 任务状态，例如 pending、running、succeeded、failed、cancelled。
 
-    # 浠诲姟鍙傛暟
-    #
-    # 姣斿鎵嬪姩瑙﹀彂鏄熸爣蹇収鏃讹紝鍙互淇濆瓨锛?
-    # {
-    #   "repository_ids": ["xxx"],
-    #   "force": false
-    # }
-    payload: Mapped[dict] = mapped_column(
-        MutableDict.as_mutable(JSON),
-        nullable=False,
-        default=dict,
+    payload: Mapped[dict] = mapped_column(  # 任务参数，例如要采集哪些仓库。
+        MutableDict.as_mutable(JSON),  # JSON 字典使用 MutableDict，确保修改内部 key/value 时 ORM 能识别变化。
+        nullable=False,  # 不允许为空，保证业务代码总能拿到字典。
+        default=dict,  # 默认空字典，表示没有额外参数。
     )
 
-    # 浠诲姟杩涘害
-    #
-    # 姣斿锛?
-    # {
-    #   "total": 100,
-    #   "succeeded": 95,
-    #   "failed": 5
-    # }
-    progress: Mapped[dict] = mapped_column(
-        MutableDict.as_mutable(JSON),
-        nullable=False,
-        default=dict,
+    progress: Mapped[dict] = mapped_column(  # 任务进度，例如 total、succeeded、failed。
+        MutableDict.as_mutable(JSON),  # JSON 字典使用 MutableDict，方便原地更新进度字段。
+        nullable=False,  # 不允许为空，保证任务查询时总能返回进度结构。
+        default=dict,  # 默认空字典，表示任务还没有进度数据。
     )
 
-    # 閿欒淇℃伅
-    # 浠诲姟澶辫触鏃跺彲浠ヨ褰曞紓甯稿師鍥?
-    error_message: Mapped[str | None] = mapped_column(Text)
+    error_message: Mapped[str | None] = mapped_column(Text)  # 任务失败原因，成功或未失败时可以为空。
 
-    # 浠诲姟寮€濮嬫椂闂?
-    started_at: Mapped[datetime | None] = mapped_column(DateTime)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime)  # 任务开始时间，任务还没开始时为空。
 
-    # 浠诲姟缁撴潫鏃堕棿
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime)  # 任务结束时间，任务未结束时为空。
 
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
+    created_at: Mapped[datetime] = mapped_column(  # 本系统创建这条任务记录的时间。
+        DateTime,  # 使用 DATETIME 类型。
+        nullable=False,  # 创建时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
     )
 
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime,
-        nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+    updated_at: Mapped[datetime] = mapped_column(  # 本系统最后更新这条任务记录的时间。
+        DateTime,  # 使用 DATETIME 类型。
+        nullable=False,  # 更新时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
+        onupdate=func.now(),  # ORM 更新任务状态或进度时自动刷新更新时间。
     )
