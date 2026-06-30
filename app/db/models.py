@@ -13,18 +13,20 @@ ORM 可以理解为“数据库表的 Python 版本”：
 """
 
 import uuid  # 用来生成 UUID 字符串，作为每条数据的主键 id。
-from datetime import datetime  # 用来声明日期时间字段，例如 created_at、updated_at。
+from datetime import date, datetime  # date 用来声明 report_date；datetime 用来声明日期时间字段。
 
 from sqlalchemy import (  # SQLAlchemy 提供数据库字段类型、外键、约束和 SQL 函数。
-    Boolean,  # 用来映射 MySQL 的 TINYINT(1)，在 Python 里表现为 True/False。
+    Boolean,  # 用来映射 MySQL 的 TINYINT(1)。
+    Date,  # 用来映射 MySQL 的 DATE 字段，例如 hot_projects.report_date。
     DateTime,  # 用来映射 MySQL 的 DATETIME 字段。
-    ForeignKey,  # 用来声明外键关系，例如快照表关联仓库表。
-    Integer,  # 用来映射 MySQL 的 INT 字段，例如 stars、forks。
-    JSON,  # 用来映射 MySQL 的 JSON 字段，例如 topics、tags、payload。
+    ForeignKey,  # 用来声明外键关系。
+    Integer,  # 用来映射 MySQL 的 INT 字段。
+    JSON,  # 用来映射 MySQL 的 JSON 字段。
+    Numeric,  # 用来映射 MySQL 的 DECIMAL 字段，例如 hot_score、growth_rate_24h。
     String,  # 用来映射 MySQL 的 VARCHAR/CHAR 字段。
-    Text,  # 用来映射 MySQL 的 TEXT 字段，适合保存较长文本。
-    UniqueConstraint,  # 用来声明联合唯一约束，避免重复快照。
-    func,  # 用来调用数据库函数，例如 func.now() 生成当前时间。
+    Text,  # 用来映射 MySQL 的 TEXT 字段。
+    UniqueConstraint,  # 用来声明联合唯一约束。
+    func, Nullable,  # 用来调用数据库函数。
 )
 from sqlalchemy.ext.mutable import MutableDict, MutableList  # 让 JSON 字典/列表的内部修改能被 ORM 识别。
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship  # SQLAlchemy 2.x 推荐的 ORM 声明方式。
@@ -134,6 +136,11 @@ class Repository(Base):  # Repository 类对应 repositories 表。
         cascade="all, delete-orphan",  # 删除仓库对象时，ORM 层也会删除它关联的快照对象。
     )
 
+    hot_projects: Mapped[list["HotProject"]] = relationship(# 一个仓库可以出现在多天热点榜里，所以是一对多关系。
+        back_populates="repository",# 和 HotProject.repository 配对，方便双向访问。
+        cascade="all, delete-orphan",# 删除仓库时，ORM 层同步删除关联热点记录。
+    )
+
 
 class StarSnapshot(Base):  # StarSnapshot 类对应 star_snapshots 表。
     """
@@ -184,6 +191,46 @@ class StarSnapshot(Base):  # StarSnapshot 类对应 star_snapshots 表。
             "snapshot_at",  # 联合唯一约束的第二个字段：快照时间。
             name="uq_star_snapshots_repo_time",  # 约束名称，和建表 SQL 保持一致，方便排查数据库错误。
         ),
+    )
+
+class HotProject(Base):
+    """
+    hot_projects表的ORM模型
+    保存每天计算出来的热电项目榜单（计算结果来自star_snapshots）
+    """
+    __tablename__ = "hot_projects"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    repository_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("repositories.id", ondelete="CASCADE", onupdate="CASCADE"),# 仓库删除时，热点记录也一起删除。
+        nullable=False,
+    )
+    report_date: Mapped[date] = mapped_column(Date, nullable=False)
+    rank_no: Mapped[int] = mapped_column(Integer, nullable=False)  # 排名，从 1 开始。
+    hot_score: Mapped[float] = mapped_column(Numeric(12, 4), nullable=False, default=0)  # 热度分，用来排序。
+    stars: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 计算时的总 star 数。
+    stars_delta_24h: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 近 24 小时新增 star 数。
+    stars_delta_7d: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 近 7 天新增 star 数。
+    growth_rate_24h: Mapped[float] = mapped_column(Numeric(12, 6), nullable=False, default=0)  # 24 小时增长率。
+    reason: Mapped[str | None] = mapped_column(Text)  # 入选原因，方便邮件日报展示。
+    created_at: Mapped[datetime] = mapped_column(  # 本系统创建这条热点记录的时间。
+        DateTime,  # 使用 DATETIME 类型。
+        nullable=False,  # 创建时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
+    )
+
+    updated_at: Mapped[datetime] = mapped_column(  # 本系统最后更新这条热点记录的时间。
+        DateTime,  # 使用 DATETIME 类型。
+        nullable=False,  # 更新时间必须存在。
+        server_default=func.now(),  # 插入时由数据库自动填当前时间。
+        onupdate=func.now(),  # ORM 更新记录时自动刷新更新时间。
+    )
+
+    repository: Mapped[Repository] = relationship(back_populates="hot_projects") # 反向关联到 Repository。
+
+    __table_args__ = (  # 表级配置，用来声明联合唯一约束。
+        UniqueConstraint("report_date", "repository_id", name="uq_hot_projects_report_repo"),  # 同一天同一仓库只能有一条热点记录。
+        UniqueConstraint("report_date", "rank_no", name="uq_hot_projects_report_rank"),  # 同一天同一个排名只能有一条记录。
     )
 
 
