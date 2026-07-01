@@ -232,6 +232,114 @@ class HotProject(Base):
         UniqueConstraint("report_date", "repository_id", name="uq_hot_projects_report_repo"),  # 同一天同一仓库只能有一条热点记录。
         UniqueConstraint("report_date", "rank_no", name="uq_hot_projects_report_rank"),  # 同一天同一个排名只能有一条记录。
     )
+    
+
+class Subscriber(Base):  # Subscriber 类对应 subscribers 表。
+    """
+    subscribers 表的 ORM 模型。
+
+    这张表保存邮件订阅者。
+    只有 status='active' 的订阅者，才会收到日报。
+    """
+
+    __tablename__ = "subscribers"  # 告诉 SQLAlchemy：这个类对应 subscribers 表。
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 订阅者主键，使用 UUID 字符串。
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True)  # 订阅者邮箱，unique=True 避免重复订阅。
+
+    name: Mapped[str | None] = mapped_column(String(255))  # 订阅者名称，可以为空。
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")  # 订阅状态：active、paused、unsubscribed。
+
+    preferences: Mapped[dict] = mapped_column(  # 订阅偏好，后续可保存语言、主题、数量等配置。
+        MutableDict.as_mutable(JSON),  # JSON 字典使用 MutableDict，方便 ORM 识别内部修改。
+        nullable=False,  # 不允许为空，保证业务代码总能拿到 dict。
+        default=dict,  # 默认空字典，表示暂无偏好。
+    )
+
+    unsubscribe_token: Mapped[str] = mapped_column(String(36), nullable=False, default=uuid_str, unique=True)  # 退订 token，后续做退订链接用。
+
+    unsubscribed_at: Mapped[datetime | None] = mapped_column(DateTime)  # 退订时间，未退订时为空。
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 创建时间。
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 更新时间。
+
+
+class EmailReport(Base):  # EmailReport 类对应 email_reports 表。
+    """
+    email_reports 表的 ORM 模型。
+
+    这张表保存每天生成出来的日报内容。
+    一天只生成一份报告，发送给多个订阅者。
+    """
+
+    __tablename__ = "email_reports"  # 告诉 SQLAlchemy：这个类对应 email_reports 表。
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 邮件日报主键。
+
+    report_date: Mapped[date] = mapped_column(Date, nullable=False, unique=True)  # 日报日期，一天只允许一份报告。
+
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)  # 邮件标题。
+
+    html_content: Mapped[str] = mapped_column(Text, nullable=False)  # HTML 邮件内容。
+
+    text_content: Mapped[str] = mapped_column(Text, nullable=False)  # 纯文本邮件内容。
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")  # 报告状态：draft、sending、sent、failed。
+
+    generated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 生成时间。
+
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)  # 发送完成时间。
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 创建时间。
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 更新时间。
+
+    deliveries: Mapped[list["EmailDelivery"]] = relationship(  # 一份日报会发给多个订阅者，所以有多条投递记录。
+        back_populates="report",  # 和 EmailDelivery.report 配对。
+        cascade="all, delete-orphan",  # 删除日报时，同步删除对应投递记录。
+    )
+
+
+class EmailDelivery(Base):  # EmailDelivery 类对应 email_deliveries 表。
+    """
+    email_deliveries 表的 ORM 模型。
+
+    这张表保存每个订阅者的发送结果。
+    同一份日报发给 10 个人，就会有 10 条投递记录。
+    """
+
+    __tablename__ = "email_deliveries"  # 告诉 SQLAlchemy：这个类对应 email_deliveries 表。
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)  # 投递记录主键。
+
+    report_id: Mapped[str] = mapped_column(String(36), ForeignKey("email_reports.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)  # 关联 email_reports.id。
+
+    subscriber_id: Mapped[str] = mapped_column(String(36), ForeignKey("subscribers.id", ondelete="CASCADE", onupdate="CASCADE"), nullable=False)  # 关联 subscribers.id。
+
+    email: Mapped[str] = mapped_column(String(320), nullable=False)  # 实际发送邮箱，冗余保存方便排查。
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")  # 发送状态：pending、sending、sent、failed、skipped。
+
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # 重试次数，本阶段先不做自动重试。
+
+    error_message: Mapped[str | None] = mapped_column(Text)  # 失败原因，成功时为空。
+
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime)  # 发送成功时间。
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 创建时间。
+
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 更新时间。
+
+    report: Mapped[EmailReport] = relationship(back_populates="deliveries")  # 反向关联到 EmailReport。
+
+    subscriber: Mapped[Subscriber] = relationship()  # 反向关联到 Subscriber，方便通过 delivery.subscriber 访问订阅者。
+
+    __table_args__ = (  # 表级配置。
+        UniqueConstraint("report_id", "subscriber_id", name="uq_email_deliveries_report_subscriber"),  # 同一份日报给同一订阅者只能有一条投递记录。
+    )
 
 
 class Job(Base):  # Job 类对应 jobs 表。
