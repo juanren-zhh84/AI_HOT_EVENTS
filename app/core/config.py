@@ -24,12 +24,13 @@ class Settings(BaseSettings):
     mail_from: str | None = None
     mail_from_name: str = "GitHub 热点项目日报"
 
-    discovery_cron: str = "0 */6 * * *"
     star_snapshot_cron: str = "0 * * * *"
-    profile_refresh_cron: str = "0 2 * * *"
     hot_project_cron: str = "30 8 * * *"
     digest_cron: str = "0 9 * * *"
+    discovery_cron: str = "0 */6 * * *"
+    profile_refresh_cron: str = "0 2 * * *"
     hot_project_top_n: int = 20
+    scheduler_enabled: bool = True  # 是否启用后台调度器；本地调试不想自动跑任务时，可以在 .env 里设为 false。
 
     log_level: str = "INFO"
 
