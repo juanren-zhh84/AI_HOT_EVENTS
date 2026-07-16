@@ -141,6 +141,13 @@ class Repository(Base):  # Repository 类对应 repositories 表。
         cascade="all, delete-orphan",# 删除仓库时，ORM 层同步删除关联热点记录。
     )
 
+    # 仓库到画像的一对一关系
+    profile: Mapped["ProjectProfile"] = relationship(
+        back_populates="repository",
+        cascade="all, delete-orphan", # 删除仓库时，ORM 层也会删除它关联的画像对象。
+        uselist=False # 一个仓库只有一个画像，所以用 False 表示不使用列表。
+    )
+
 
 class StarSnapshot(Base):  # StarSnapshot 类对应 star_snapshots 表。
     """
@@ -388,3 +395,48 @@ class Job(Base):  # Job 类对应 jobs 表。
         server_default=func.now(),  # 插入时由数据库自动填当前时间。
         onupdate=func.now(),  # ORM 更新任务状态或进度时自动刷新更新时间。
     )
+
+class MonitorSource(Base):
+    """
+    监控源ORM模型，对应一条从哪里自动发现项目的配置
+    """
+    __tablename__ = "monitor_sources"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source_type: Mapped[str] = mapped_column("type", String(50), nullable=False)
+    query: Mapped[str] = mapped_column(Text, nullable=False)
+    filters: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), nullable=False, default=dict)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    discover_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=360)
+    last_discovered_at: Mapped[datetime | None] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class ProjectProfile(Base):
+    """
+    项目画像ORM模型，对应一个仓库的扩展介绍信息
+    展示项目简介、功能点、技术栈等等
+    """
+    __tablename__ = "project_profiles"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    repository_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("repositories.id", ondelete="CASCADE", onupdate="CASCADE"), # 关联仓库，cascade删除仓库时级联删除画像
+        nullable=False, # 画像必须关联一个仓库
+    )
+    summary: Mapped[str] = mapped_column(Text, nullable=False) # readme缺失时允许为空
+    features: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), nullable=False, default=list)
+    audience: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), nullable=False, default=list)
+    highlights: Mapped[list[str]] = mapped_column(MutableList.as_mutable(JSON), nullable=False, default=list)
+    tech_stack: Mapped[dict] = mapped_column(MutableDict.as_mutable(JSON), nullable=False, default=dict)
+    readme_hash: Mapped[str] = mapped_column(String(128)) # 用于判断readme是否变化
+    summary_status: Mapped[str] = mapped_column(String(20), nullable=False, default="partial") # 摘要状态：# complete、partial、failed。
+    generated_at: Mapped[datetime] = mapped_column(DateTime)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    repository: Mapped["Repository"] = relationship(back_populates="profile")
+
+    __table_args__ = (UniqueConstraint("repository_id", name="uq_project_profiles_repository"), )
+

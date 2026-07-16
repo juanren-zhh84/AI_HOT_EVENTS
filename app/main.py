@@ -9,6 +9,7 @@ from app.api.routes_star_snapshots import router as star_snapshots_router  # 星
 from app.api.routes_hot_projects import router as hot_projects_router  # 热点项目路由。
 from app.api.routes_email_digest import router as email_digest_router  # 邮件日报路由。
 from app.services.scheduler_service import scheduler_service  # 后台调度器服务。
+from app.api.routes_monitor_sources import router as monitor_sources_router  # 监控源路由。
 
 @asynccontextmanager # 把普通异步函数变成 FastAPI 可识别的生命周期管理器
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -32,6 +33,7 @@ app.include_router(repositories_router, prefix="/api/v1")  # 注册仓库接口�
 app.include_router(star_snapshots_router, prefix="/api/v1")  # 注册星标快照接口。
 app.include_router(hot_projects_router, prefix="/api/v1")  # 注册热点项目接口。
 app.include_router(email_digest_router, prefix="/api/v1")  # 注册邮件日报接口。
+app.include_router(monitor_sources_router, prefix="/api/v1") # 注册监控源接口
 
 
 
