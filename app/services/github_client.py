@@ -169,3 +169,38 @@ class GitHubClient:
 
         response.raise_for_status()
         return response.json()
+
+    def search_repositories(self,query, page, per_page):
+        """
+        调用 GitHub Search API。
+        对应接口：GET /search/repositories?q=...&sort=stars&order=desc
+        """
+        url = f"{self.base_url}/search/repositories"
+        params = {
+            "q": query,
+            "sort": "stars",
+            "order": "desc",
+            "page": page, # 当前页码
+            "per_page": per_page, # 每页数量
+        }
+        with httpx.Client(timeout=20) as client:
+            response = client.get(url, headers=self.headers, params=params)
+        response.raise_for_status() # 非2xx时抛出异常，让上层记录任务失败
+        return response.json() # 返回GitHub原始json，service负责进一步清洗
+
+    def list_owner_repositories(self,owner, page, per_page):
+        """
+        拉取用户或组织公开仓库
+        对应接口：GET /users/{owner}/repos
+        """
+        url = f"{self.base_url}/users/{owner}/repos"
+        params = {
+            "type": "public",
+            "sort": "updated",
+            "page": page,
+            "per_page": per_page,
+        }
+        with httpx.Client(timeout=20) as client:
+            response = client.get(url, headers=self.headers, params=params)
+        response.raise_for_status()
+        return response.json() # 返回仓库列表
