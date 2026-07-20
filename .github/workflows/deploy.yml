@@ -44,12 +44,4 @@ jobs:
           pip install -r requirements.txt
           sudo -n systemctl restart ai-hot-events
           sudo -n systemctl status ai-hot-events --no-pager -l
-#          curl -f http://127.0.0.1:8000/api/v1/health
           EOF
-
-#      - name: Show recent backend logs
-#        if: always()
-#        run: |
-#          ssh -i ~/.ssh/deploy_key -p "${{ secrets.SERVER_PORT }}" \
-#            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
-#            "sudo -n journalctl -u ai-hot-events -n 80 --no-pager"
