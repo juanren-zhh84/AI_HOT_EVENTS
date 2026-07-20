@@ -24,6 +24,8 @@ jobs:
         run: |
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }}" \
+            --exclude "docker-compose.yml" \
+            --exclude "Dockerfile" \
             --exclude ".git" \
             --exclude ".github" \
             --exclude ".env" \
