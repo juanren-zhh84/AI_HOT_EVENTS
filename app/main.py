@@ -11,6 +11,7 @@ from app.api.routes_email_digest import router as email_digest_router  # 邮件�
 from app.services.scheduler_service import scheduler_service  # 后台调度器服务。
 from app.api.routes_monitor_sources import router as monitor_sources_router  # 监控源路由。
 from app.api.routes_discovery import router as discovery_router  # 导入自动发现路由。
+from app.api.routes_project_profiles import router as project_profiles_router  # 导入项目画像路由。
 
 @asynccontextmanager # 把普通异步函数变成 FastAPI 可识别的生命周期管理器
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -36,6 +37,7 @@ app.include_router(hot_projects_router, prefix="/api/v1")  # 注册热点项目�
 app.include_router(email_digest_router, prefix="/api/v1")  # 注册邮件日报接口。
 app.include_router(monitor_sources_router, prefix="/api/v1") # 注册监控源接口
 app.include_router(discovery_router, prefix="/api/v1")  # 注册自动发现接口
+app.include_router(project_profiles_router, prefix="/api/v1")  # 注册项目画像接口。
 
 
 

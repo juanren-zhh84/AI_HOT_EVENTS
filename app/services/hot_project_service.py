@@ -53,7 +53,15 @@ class HotProjectService:
             stars_delta_24h = self._calculate_delta(latest_snapshot, snapshot_24h)  # 计算 24 小时增长。
             stars_delta_7d = self._calculate_delta(latest_snapshot, snapshot_7d)  # 计算 7 天增长。
             growth_rate_24h = self._calculate_growth_rate(latest_snapshot, snapshot_24h)  # 计算 24 小时增长率。
-            hot_score = self._calculate_hot_score(latest_snapshot.stars, stars_delta_24h, stars_delta_7d,growth_rate_24h)  # 计算热度分。
+            activity_score = self._calculate_activity_score(repository.last_pushed_at,latest_snapshot.snapshot_at)  # 根据最近 push 时间计算活跃度。
+            freshness_score = self._calculate_freshness_score(repository.github_created_at,latest_snapshot.snapshot_at)  # 根据 GitHub 创建时间计算新鲜度。
+            hot_score = self._calculate_hot_score(  # 调用新热度公式，必须把新增分数一起传进去。
+                stars_delta_24h,  # 24 小时新增 star。
+                stars_delta_7d,  # 7 天新增 star。
+                growth_rate_24h,  # 24 小时增长率。
+                activity_score,  # 活跃度分。
+                freshness_score,  # 新鲜度分。
+            )
 
             candidates.append(  # 把候选项目加入列表，后面统一排序。
                 {
@@ -63,6 +71,8 @@ class HotProjectService:
                     "stars_delta_7d": stars_delta_7d,  # 保存 7 天增长。
                     "growth_rate_24h": growth_rate_24h,  # 保存 24 小时增长率。
                     "hot_score": hot_score,  # 保存热度分。
+                    "activity_score": activity_score,  # 保存活跃度分，后面写入入选原因。
+                    "freshness_score": freshness_score,  # 保存新鲜度分，后面写入入选原因。
                 }
             )
 
@@ -172,23 +182,52 @@ class HotProjectService:
         if old_snapshot.stars <= 0: return 0.0
         return max((latest_snapshot.stars - old_snapshot.stars)/old_snapshot.stars,0.0) # 只保正增长率
 
+    def _calculate_activity_score(self, last_pushed_at: datetime | None, calculated_at: datetime) -> float:  # 计算项目活跃度。
+        if last_pushed_at is None:  # 没有 push 时间说明无法判断活跃度。
+            return 0.0  # 不给活跃度加分。
+        days_since_push = (calculated_at - last_pushed_at).days  # 计算距离最近 push 过去了多少天。
+        if days_since_push <= 30:  # 30 天内 push 说明非常活跃。
+            return 100.0  # 给满分。
+        if days_since_push <= 90:  # 90 天内 push 说明仍然活跃。
+            return 60.0  # 给中等分。
+        if days_since_push <= 180:  # 半年内 push 说明还有维护迹象。
+            return 30.0  # 给少量分。
+        return 0.0  # 超过半年未 push，不给活跃度分。
 
-    def _calculate_hot_score(self, stars: int, delta_24h: int, delta_7d: int, growth_rate_24h: float) -> float:
-        """
-        # 计算热度分。
-        """
-        star_base_score = min(stars, 100000) * 0.001  # 总 stars 给少量基础分，避免老项目完全没权重。
-        daily_growth_score = delta_24h * 5  # 24 小时增长权重最高，因为它最能代表“今天热”。
-        weekly_growth_score = delta_7d * 1  # 7 天增长权重较低，用来补充趋势。
-        growth_rate_score = growth_rate_24h * 100  # 增长率给额外加分，照顾小而快的项目。
-        return star_base_score + daily_growth_score + weekly_growth_score + growth_rate_score  # 返回最终热度分。
+    def _calculate_freshness_score(self, github_created_at: datetime | None,
+                                   calculated_at: datetime) -> float:  # 计算项目新鲜度。
+        if github_created_at is None:  # 没有创建时间时无法判断新鲜度。
+            return 0.0  # 不给新鲜度加分。
+        days_since_created = (calculated_at - github_created_at).days  # 计算项目创建了多少天。
+        if days_since_created <= 90:  # 90 天内创建，属于新项目。
+            return 100.0  # 给满分。
+        if days_since_created <= 180:  # 180 天内创建，仍然偏新。
+            return 60.0  # 给中等分。
+        return 0.0  # 老项目不给新鲜度分。
 
+    def _calculate_hot_score(  # 封装评分公式，调用方必须先算出 activity_score 和 freshness_score。
+            self,  # 当前服务对象。
+            stars_delta_24h: int,  # 24 小时新增 star。
+            stars_delta_7d: int,  # 7 天新增 star。
+            growth_rate_24h: float,  # 24 小时增长率。
+            activity_score: float,  # 活跃度分，由 _calculate_activity_score 计算。
+            freshness_score: float,  # 新鲜度分，由 _calculate_freshness_score 计算。
+    ) -> float:  # 返回最终热度分。
+        return (  # 返回加权热度分。
+                stars_delta_24h * 0.45  # 今日增长权重最高。
+                + stars_delta_7d * 0.25  # 周增长权重第二。
+                + growth_rate_24h * 100 * 0.15  # 增长率用于发现小而快的项目。
+                + activity_score * 0.10  # 活跃项目优先。
+                + freshness_score * 0.05  # 新项目给少量加分。
+        )
 
     def _build_reason(self, candidate: dict) -> str:  # 生成入选原因。
         delta_24h = candidate["stars_delta_24h"]  # 取出 24 小时增长。
         delta_7d = candidate["stars_delta_7d"]  # 取出 7 天增长。
         hot_score = candidate["hot_score"]  # 取出热度分。
-        return f"近24小时新增 {delta_24h} stars，近7天新增 {delta_7d} stars，热度分 {hot_score:.2f}。"  # 返回可读文案。
+        activity_score = candidate["activity_score"]  # 取出活跃度分。
+        freshness_score = candidate["freshness_score"]  # 取出新鲜度分。
+        return f"近24小时新增 {delta_24h} stars，近7天新增 {delta_7d} stars，活跃度 {activity_score:.0f}，新鲜度 {freshness_score:.0f}，热度分 {hot_score:.2f}。"  # 返回可读文案。
 
 
     def _delete_old_report(self, report_date: date) -> None:  # 删除同一天旧榜单。

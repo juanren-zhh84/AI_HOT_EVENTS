@@ -4,32 +4,20 @@ from pydantic import BaseModel,Field
 
 
 class HotProjectCalculateRequest(BaseModel):
-    """
-    手动触发热电项目计算的请求体
-    """
-    report_date: date | None = Field(
-        default=None,
-        description="榜单日期，不传则使用当前日期"
-    )
-    top_n: int = Field(
-        default=20,
-        ge=1,
-        le=100,
-        description="生成热点项目数量，范围1-100"
-    )
-    include_disabled: bool = Field(
-        default=False,
-        description="是否包含enabled=true的仓库"
-    )
+    """热点计算请求体。"""
+
+    report_date: date | None = Field(default=None, description="榜单日期；不传则使用今天")  # 支持补算历史日期。
+    top_n: int = Field(default=20, ge=1, le=100, description="生成热点项目数量")  # 控制榜单长度。
+    include_disabled: bool = Field(default=False, description="是否包含禁用仓库")  # 默认不包含已禁用仓库。
 
 class HotProjectResponse(BaseModel):
-    """热点项目响应体"""
+    """热点项目响应体。"""
     id: str  # hot_projects 表主键。
     repository_id: str  # 仓库 id。
-    full_name: str  # 仓库完整名，例如 openai/openai-python。
+    full_name: str  # 仓库完整名。
     html_url: str  # GitHub 页面地址。
-    description: str | None = None  # 仓库描述，可能为空。
-    primary_language: str | None = None  # 主语言，可能为空。
+    description: str | None = None  # 仓库描述。
+    primary_language: str | None = None  # 主语言。
     report_date: date  # 榜单日期。
     rank_no: int  # 排名。
     hot_score: float  # 热度分。
@@ -44,15 +32,13 @@ class HotProjectResponse(BaseModel):
 
 
 class HotProjectRunResponse(BaseModel):
-    """
-    热点计算任务响应体
-    """
+    """热点计算响应体。"""
     job_id: str  # jobs 表任务 id。
     status: str  # 任务状态。
-    report_date: date  # 本次计算的榜单日期。
+    report_date: date  # 榜单日期。
     total_candidates: int  # 参与计算的候选仓库数量。
-    generated: int  # 最终写入 hot_projects 的数量。
-    hot_projects: list[HotProjectResponse]  # 本次生成的热点项目列表。
+    generated: int  # 写入榜单的数量。
+    hot_projects: list[HotProjectResponse]  # 本次生成的热点项目。
 
 
 
