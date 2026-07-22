@@ -12,6 +12,9 @@ from app.services.scheduler_service import scheduler_service  # 后台调度器�
 from app.api.routes_monitor_sources import router as monitor_sources_router  # 监控源路由。
 from app.api.routes_discovery import router as discovery_router  # 导入自动发现路由。
 from app.api.routes_project_profiles import router as project_profiles_router  # 导入项目画像路由。
+from app.api.routes_schedules import router as schedules_router  # 导入调度配置管理路由。
+from app.api.routes_jobs import router as jobs_router  # 导入任务查询路由。
+from app.api.routes_github import router as github_router  # 导入 GitHub 运维路由。
 
 @asynccontextmanager # 把普通异步函数变成 FastAPI 可识别的生命周期管理器
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
@@ -38,6 +41,9 @@ app.include_router(email_digest_router, prefix="/api/v1")  # 注册邮件日报�
 app.include_router(monitor_sources_router, prefix="/api/v1") # 注册监控源接口
 app.include_router(discovery_router, prefix="/api/v1")  # 注册自动发现接口
 app.include_router(project_profiles_router, prefix="/api/v1")  # 注册项目画像接口。
+app.include_router(schedules_router, prefix="/api/v1")  # 注册调度配置接口，最终路径是 /api/v1/schedules。
+app.include_router(jobs_router, prefix="/api/v1")  # 注册任务查询接口，最终路径是 /api/v1/jobs。
+app.include_router(github_router, prefix="/api/v1")  # 注册 GitHub 运维接口，最终路径是 /api/v1/github/rate-limit。
 
 
 

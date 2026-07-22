@@ -440,3 +440,18 @@ class ProjectProfile(Base):
 
     __table_args__ = (UniqueConstraint("repository_id", name="uq_project_profiles_repository"), )
 
+
+class Schedule(Base):  # Schedule 类对应 schedules 表。
+    """调度配置表 ORM 模型。"""  # 这张表保存“任务什么时候跑”，不是保存某一次执行结果。
+
+    __tablename__ = "schedules"  # 告诉 SQLAlchemy：这个类映射数据库里的 schedules 表。
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)  # 调度主键，例如 schedule_daily_digest。
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)  # 调度名称，例如 daily_digest，用来映射具体执行函数。
+    cron_expr: Mapped[str] = mapped_column(String(100), nullable=False)  # Cron 表达式，例如 0 9 * * *。
+    timezone: Mapped[str] = mapped_column(String(100), nullable=False, default="Asia/Shanghai")  # 当前调度使用的时区。
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)  # 是否启用该调度。
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime)  # APScheduler 计算出的下一次运行时间。
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime)  # 该调度最近一次实际运行时间。
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 创建时间由数据库生成。
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 更新时间由数据库维护。
