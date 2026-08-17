@@ -4,12 +4,14 @@ from datetime import timezone, datetime
 from app.db.models import Job, ProjectProfile, Repository
 from app.schemas.project_profile import ProjectProfileGenerateRequest
 from app.services.github_client import GitHubClient
+from app.services.chinese_profile_service import ChineseProfileService
 
 
 class ProjectProfileService:
     def __init__(self,db):
         self.db = db
         self.github = GitHubClient()
+        self.chinese_profile = ChineseProfileService()
 
     def run_profile_generation(self,payload: ProjectProfileGenerateRequest):
         job = Job(job_type="profile_refresh", status="running", payload=payload.model_dump(), started_at=datetime.now(timezone.utc))
@@ -44,15 +46,21 @@ class ProjectProfileService:
         if profile.readme_hash == readme_hash and not force: # readme没变化不强制刷新
             return profile
 
-        profile.summary = self._build_summary(summary_source)  # 生成一句话简介。
-        profile.features = self._build_features(summary_source)  # 生成功能点。
-        profile.audience = self._build_audience(repository, summary_source)  # 生成适用人群。
-        profile.highlights = self._build_highlights(repository, summary_source)  # 生成项目亮点。
-        profile.tech_stack = self._build_tech_stack(repository)  # 生成技术栈。
+        chinese_profile = self.chinese_profile.build_profile(  # 调用中文画像服务生成中文展示字段。
+            repository=repository,  # 传入仓库 ORM，提供仓库名称、stars、语言等结构化信息。
+            readme_text=readme_text,  # 传入 README 原文，优先让大模型理解完整项目说明。
+            fallback_text=repository.description or "",  # README 缺失时降级使用 GitHub description。
+        )  # 返回 summary、features、audience、highlights、status。
 
-        profile.readme_hash = readme_hash # 保存哈希
-        profile.summary_status = "complete" if readme_text else "partial"
-        profile.generated_at = datetime.now(timezone.utc)
+        profile.summary = chinese_profile["summary"]  # 写入中文一句话简介，邮件日报会优先展示这个字段。
+        profile.features = chinese_profile["features"]  # 写入中文功能点。
+        profile.audience = chinese_profile["audience"]  # 写入中文适用人群。
+        profile.highlights = chinese_profile["highlights"]  # 写入中文亮点。
+        profile.tech_stack = self._build_tech_stack(repository)  # 技术栈继续用 GitHub languages API，不交给大模型猜。
+
+        profile.readme_hash = readme_hash  # 保存 README 哈希，用来判断后续是否需要重新生成。
+        profile.summary_status = chinese_profile["status"]  # complete 表示模型生成成功，partial 表示使用了本地兜底。
+        profile.generated_at = datetime.now(timezone.utc)  # 保存生成时间。
 
         self.db.add(profile)
         self.db.commit()

@@ -135,13 +135,16 @@ class EmailDigestService:
         rows = []  # 保存每个项目的 HTML 块。
         for item in hot_projects:  # 遍历热点项目。
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
+            summary = self._get_project_summary(item)  # 优先获取中文项目简介。
+            highlights = self._get_project_highlights(item)  # 优先获取中文项目亮点。
             rows.append(  # 添加一个项目块。
                 f"""
                 <tr>
                     <td style="padding:8px;border-bottom:1px solid #eee;">{item.rank_no}</td>
                     <td style="padding:8px;border-bottom:1px solid #eee;">
                         <a href="{repo.html_url}" target="_blank">{repo.full_name}</a><br>
-                        <span style="color:#666;">{repo.description or ""}</span>
+                        <span style="color:#666;">{summary}</span><br>
+                        <span style="color:#999;">{highlights}</span>
                     </td>
                     <td style="padding:8px;border-bottom:1px solid #eee;">{repo.primary_language or "未知"}</td>
                     <td style="padding:8px;border-bottom:1px solid #eee;">{item.stars}</td>
@@ -184,11 +187,14 @@ class EmailDigestService:
 
         for item in hot_projects:  # 遍历热点项目。
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
+            summary = self._get_project_summary(item)  # 优先获取中文项目简介。
+            highlights = self._get_project_highlights(item)  # 优先获取中文项目亮点。
             lines.append(f"{item.rank_no}. {repo.full_name}")  # 排名和仓库名。
+            lines.append(f"   简介: {summary}")  # 展示中文简介。
+            lines.append(f"   亮点: {highlights}")  # 展示中文亮点。
             lines.append(f"   Stars: {item.stars}，24h +{item.stars_delta_24h}，7d +{item.stars_delta_7d}")  # 指标。
-            lines.append(f"   语言: {repo.primary_language or '未知'}")  # 主语言。
+            lines.append(f"   语言: {repo.primary_language or '未知'}")  # 主要语言。
             lines.append(f"   地址: {repo.html_url}")  # GitHub 地址。
-            lines.append(f"   原因: {item.reason or '暂无'}")  # 入选原因。
             lines.append("")  # 空行分隔。
         return "\n".join(lines)  # 拼成纯文本。
 
@@ -249,6 +255,23 @@ class EmailDigestService:
                     smtp.starttls() # 587端口通常需要starttls
                 smtp.login(settings.smtp_username, settings.smtp_password)
                 smtp.send_message(message)
+
+    def _get_project_profile(self, hot_project: HotProject):  # 获取热点项目关联的中文画像。
+        repository = hot_project.repository  # 通过 HotProject.repository 拿到仓库 ORM。
+        return getattr(repository, "profile", None)  # Repository.profile 是 ORM 一对一属性，不是表名。
+
+    def _get_project_summary(self, hot_project: HotProject) -> str:  # 获取邮件中展示的项目简介。
+        repo = hot_project.repository  # 获取仓库对象。
+        profile = self._get_project_profile(hot_project)  # 获取项目画像。
+        if profile and profile.summary:  # 如果已经生成中文画像。
+            return profile.summary  # 优先返回中文 summary。
+        return repo.description or "暂无简介"  # 没有画像时降级使用 GitHub 原始描述。
+
+    def _get_project_highlights(self, hot_project: HotProject) -> str:  # 获取邮件中展示的项目亮点。
+        profile = self._get_project_profile(hot_project)  # 获取项目画像。
+        if profile and profile.highlights:  # 如果画像里有中文亮点。
+            return "；".join(profile.highlights[:3])  # 展示前三条，避免邮件太长。
+        return hot_project.reason or "暂无亮点"  # 没有画像时降级使用热点入选原因。
 
 
 
