@@ -1,3 +1,4 @@
+import re  # 关键词按词边界匹配用正则。
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
@@ -102,7 +103,42 @@ class DiscoveryService:
             return False # 如果star不达标，跳过该仓库
         if github_data.get("archived") or github_data.get("disabled"):
             return False # 如果已归档或禁用
+        keywords = self._parse_keywords(filters.get("keywords"))  # 读取关键词过滤列表
+        if keywords:  # 配置了关键词才过滤
+            name_desc_text = " ".join([  # 仓库名+描述是自由文本，短词按子串匹配容易误中（如 ai 命中 maintain），按词边界匹配
+                github_data.get("full_name") or "",
+                github_data.get("description") or "",
+            ]).lower()  # 统一转小写
+            topics_text = " ".join(github_data.get("topics") or []).lower()  # topics 是 GitHub 精确标签（如 ai-agents），按子串匹配即可
+            if not any(self._keyword_matches(keyword, name_desc_text, topics_text) for keyword in keywords):  # 命中任意一个关键词才算通过
+                return False  # 一个都没命中，跳过该仓库
         return True
+
+    def _keyword_matches(self, keyword, name_desc_text, topics_text):
+        """关键词命中判断，避免 ai、go 等短词误中 maintain、google 等无关文本：
+        1. 英文/数字关键词：对仓库名+描述按词边界匹配，并兼容 agents 等复数形式；
+        2. topics：GitHub 标签是精确词（如 ai-agents），词边界会漏掉，按子串匹配；
+        3. 纯中文关键词没有词边界概念，退化为子串匹配（如"智能"命中"人工智能"）。
+        """
+        if re.search(r"[a-z0-9]", keyword):  # 关键词含英文或数字
+            pattern = r"\b" + re.escape(keyword) + r"s?\b"  # 词边界 + 可选复数 s
+            if re.search(pattern, name_desc_text):  # 仓库名/描述命中
+                return True  # 命中返回 True
+            return keyword in topics_text  # 未命中则看 topics 子串
+        return keyword in name_desc_text or keyword in topics_text  # 纯中文退化为子串匹配
+
+    def _parse_keywords(self, raw_keywords):
+        """把 filters.keywords 标准化成小写关键词列表，兼容字符串和列表两种写法"""
+        if not raw_keywords:  # 未配置或空值
+            return []  # 返回空列表表示不过滤
+        if isinstance(raw_keywords, str):  # 兼容逗号分隔字符串，例如 "agent, rag"
+            raw_keywords = [part.strip() for part in raw_keywords.split(",") if part.strip()]
+        keywords = []  # 初始化结果列表
+        for keyword in raw_keywords:  # 遍历原始关键词
+            keyword = str(keyword).strip().lower()  # 统一转小写并去掉空白
+            if keyword:  # 跳过空字符串
+                keywords.append(keyword)  # 加入结果列表
+        return keywords  # 返回标准化关键词列表
 
     def _build_local_tags(self,github_data):
         """生成系统内部标签"""

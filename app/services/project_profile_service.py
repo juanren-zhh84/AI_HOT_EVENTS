@@ -26,8 +26,11 @@ class ProjectProfileService:
         for repository in repositories:
             # 单个仓库失败不影响其他仓库
             try:
-                self.generate_for_repository(repository, force=payload.force)  #生成或更新画像
-                generated += 1
+                result = self.generate_for_repository(repository, force=payload.force)  #生成或更新画像
+                if result is None:  # LLM 生成失败（无兜底）
+                    failed += 1  # 计入失败数量
+                else:
+                    generated += 1  # 计入成功数量
             except Exception: # 捕获单个异常
                 failed += 1
         job.status = "succeeded" if failed == 0 else "failed" # 全部成功才标记succeeded
@@ -50,7 +53,10 @@ class ProjectProfileService:
             repository=repository,  # 传入仓库 ORM，提供仓库名称、stars、语言等结构化信息。
             readme_text=readme_text,  # 传入 README 原文，优先让大模型理解完整项目说明。
             fallback_text=repository.description or "",  # README 缺失时降级使用 GitHub description。
-        )  # 返回 summary、features、audience、highlights、status。
+        )  # 返回 summary、features、audience、highlights、status；LLM 失败时返回 None。
+
+        if chinese_profile is None:  # LLM 生成失败（无兜底）。
+            return None  # 不写入画像，跳过该仓库；已有画像保持原样，下次任务自动重试。
 
         profile.summary = chinese_profile["summary"]  # 写入中文一句话简介，邮件日报会优先展示这个字段。
         profile.features = chinese_profile["features"]  # 写入中文功能点。
@@ -96,36 +102,6 @@ class ProjectProfileService:
     def _hash_text(self, text):
         """计算文本哈希"""
         return hashlib.sha256(text.encode("utf-8")).hexdigest() # 使用SHA256生成稳定哈希
-
-    def _build_summary(self, text):
-        """生成一句话简介"""
-        clean_text = " ".join(text.split()) # 把多行文本压缩成一行,避免出现大量换行
-        return clean_text[:240] if clean_text else None # 截取前 240 字作为最小可用简介。
-
-    def _build_features(self, text):
-        """生成项目功能点"""
-        lowered = text.lower()
-        features = [] # 功能点列表
-        if "agent" in lowered:
-            features.append("Agent workflow support")
-        if "rag" in lowered:
-            features.append("Rag workflow support")
-        if "workflow" in lowered:
-            features.append("Workflow support")
-        return features[:5] or ["基于项目简洁的readme或者描述"]
-
-    def _build_audience(self, repository, text):
-        """生成适用人群"""
-        audience = ["适合AI应用开发者"]
-        if repository.primary_language:
-            audience.append(f"{repository.primary_language} 开发者") # 增加语言开发者
-        return audience
-
-    def _build_highlights(self, repository: Repository, text: str) -> list[str]:  # 生成项目亮点。
-        highlights = [f"{repository.stars} GitHub stars"]  # star 数是最直观亮点。
-        if repository.tags:  # 如果有本地标签。
-            highlights.append(f"Matched tags: {', '.join(repository.tags)}")  # 展示命中标签。
-        return highlights  # 返回亮点。
 
     def _build_tech_stack(self, repository: Repository) -> dict:  # 生成技术栈。
         languages = self.github.get_languages(repository.owner, repository.name)  # 调 GitHub languages API。

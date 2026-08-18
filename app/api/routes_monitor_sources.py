@@ -43,3 +43,11 @@ def update_monitor_source(source_id: str, payload: MonitorSourceUpdate, db: Sess
     if not source:  # 如果查不到。
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitor source not found")  # 返回 404。
     return source  # 返回更新后的监控源。
+
+# DELETE /monitor-sources/{source_id} 删除监控源。
+@router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)  # 删除成功返回 204 无响应体。
+def delete_monitor_source(source_id: str, db: Session = Depends(get_db)) -> None:  # 接收路径参数和数据库会话。
+    service = MonitorSourceService(db)  # 创建业务服务对象。
+    deleted = service.delete_source(source_id)  # 调用删除逻辑。
+    if not deleted:  # 如果记录不存在。
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Monitor source not found")  # 返回 404。

@@ -39,3 +39,11 @@ class MonitorSourceService:
         self.db.commit()
         self.db.refresh(source)
         return source
+
+    def delete_source(self, source_id: str) -> bool: # 删除监控源
+        source = self.get_source(source_id) # 先查询目标记录
+        if not source: # 记录不存在
+            return False # 返回 False，路由层返回 404
+        self.db.delete(source) # 删除记录
+        self.db.commit() # 提交删除
+        return True # 返回删除成功

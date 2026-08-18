@@ -79,7 +79,7 @@ class GitHubClient:
         # 拼出完整的url
         url = f"{self.base_url}/repos/{owner}/{repo}"
         # 使用httpx.Client发起请求,with会在请求后自动关闭连接资源
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers)
 
         # 抛出异常
@@ -105,7 +105,7 @@ class GitHubClient:
         }
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/languages"
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers)
 
         response.raise_for_status()
@@ -137,7 +137,7 @@ class GitHubClient:
         让上层代码知道“这个仓库没有 README”。
         """
         url = f"{self.base_url}/repos/{owner}/{repo}/readme"
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers)
 
         if response.status_code == 404:
@@ -164,7 +164,7 @@ class GitHubClient:
         """
         url = f"{self.base_url}/rate_limit"
 
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers)
 
         response.raise_for_status()
@@ -183,7 +183,7 @@ class GitHubClient:
             "page": page, # 当前页码
             "per_page": per_page, # 每页数量
         }
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers, params=params)
         response.raise_for_status() # 非2xx时抛出异常，让上层记录任务失败
         return response.json() # 返回GitHub原始json，service负责进一步清洗
@@ -200,7 +200,7 @@ class GitHubClient:
             "page": page,
             "per_page": per_page,
         }
-        with httpx.Client(timeout=20) as client:
+        with httpx.Client(timeout=20, trust_env=False) as client:
             response = client.get(url, headers=self.headers, params=params)
         response.raise_for_status()
         return response.json() # 返回仓库列表

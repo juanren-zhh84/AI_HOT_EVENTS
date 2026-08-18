@@ -1,7 +1,6 @@
 import json
 import logging
 
-from app.db.models import Repository
 from app.services.llm_client import LLMClient
 
 logger = logging.getLogger(__name__)
@@ -19,12 +18,12 @@ class ChineseProfileService:
         user_prompt = self._build_user_prompt(repository, source_text)
         content = self.llm.chat_json(system_prompt, user_prompt)
 
-        if not content:
+        if content:  # LLM 成功返回内容时才尝试解析。
             parsed = self._parse_profile_json(content)
             if parsed:
                 return parsed
 
-        return self._fallback_profile(repository,source_text)
+        return None  # LLM 失败或解析失败：不生成兜底画像，由上层跳过该仓库。
 
     def _prepare_source_text(self, readme_text, fallback_text):
         raw_text = readme_text or fallback_text or ""  # 优先使用 README，缺失时使用 GitHub description。
@@ -64,6 +63,8 @@ class ChineseProfileService:
 
     def _parse_profile_json(self, content):
         """解析模型的返回"""
+        if not content:  # 防御：空内容直接走兜底，避免 json.loads(None) 抛 TypeError。
+            return None
         try:
             data = json.loads(content)
         except json.JSONDecodeError as exc:
@@ -92,47 +93,3 @@ class ChineseProfileService:
         if isinstance(value, str) and value.strip():  # 如果模型误返回字符串。
             return [value.strip()]  # 包装成数组，避免类型不匹配。
         return []  # 其他情况返回空数组。
-
-    def _fallback_profile(self, repository: Repository, source_text: str) -> dict:
-        """本地兜底中文画像。"""
-        summary_source = repository.description or source_text or repository.full_name  # 优先用 description 做兜底摘要来源。
-        summary = self._fallback_summary(repository, summary_source)  # 生成中文兜底摘要。
-        features = self._fallback_features(source_text)  # 根据关键词生成中文功能点。
-        audience = self._fallback_audience(repository)  # 根据语言生成适用人群。
-        highlights = self._fallback_highlights(repository)  # 根据 stars 和 tags 生成亮点。
-        return {  # 返回与模型输出一致的结构。
-            "summary": summary,  # 中文摘要。
-            "features": features,  # 中文功能点。
-            "audience": audience,  # 中文适用人群。
-            "highlights": highlights,  # 中文亮点。
-            "status": "partial",  # 兜底生成不是模型完整分析，所以标记 partial。
-        }
-
-    def _fallback_summary(self, repository: Repository, text: str) -> str:  # 生成兜底摘要。
-        clean_text = " ".join(text.split())  # 压缩空白。
-        if not clean_text:  # 如果没有任何可用描述。
-            return f"{repository.full_name} 是一个近期热度较高的开源项目。"  # 返回最小可用中文简介。
-        return f"{repository.full_name} 是一个与 AI/Agent 相关的开源项目，原始简介为：{clean_text[:80]}"  # 保留原始语义并转成中文说明。
-
-    def _fallback_features(self, text: str) -> list[str]:  # 根据关键词生成兜底功能点。
-        lowered = text.lower()  # 转小写便于关键词匹配。
-        features: list[str] = []  # 保存功能点。
-        if "agent" in lowered:  # 命中 agent。
-            features.append("支持 AI Agent 或自动化工作流场景。")  # 添加中文功能点。
-        if "rag" in lowered:  # 命中 rag。
-            features.append("支持检索增强生成或知识库相关能力。")  # 添加中文功能点。
-        if "workflow" in lowered:  # 命中 workflow。
-            features.append("提供工作流编排或流程自动化能力。")  # 添加中文功能点。
-        return features[:5] or ["提供可复用的开源项目能力。"]  # 没命中关键词时返回通用中文功能点。
-
-    def _fallback_audience(self, repository: Repository) -> list[str]:  # 生成兜底适用人群。
-        audience = ["关注 AI 应用和开源工具的技术读者。"]  # 默认适用人群。
-        if repository.primary_language:  # 如果 GitHub 有主要语言。
-            audience.append(f"{repository.primary_language} 开发者。")  # 增加语言开发者。
-        return audience  # 返回适用人群。
-
-    def _fallback_highlights(self, repository: Repository) -> list[str]:  # 生成兜底亮点。
-        highlights = [f"项目当前拥有 {repository.stars} 个 GitHub Stars。"]  # stars 是最直接的热度指标。
-        if repository.tags:  # 如果 discovery 阶段写入了标签。
-            highlights.append(f"命中标签：{', '.join(repository.tags)}。")  # 用中文描述命中标签。
-        return highlights  # 返回亮点列表。
