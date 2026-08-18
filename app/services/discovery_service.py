@@ -38,6 +38,7 @@ class DiscoveryService:
             for source in sources:
                 self._run_source(source, payload.max_pages, payload.per_page, counters) # 执行单个监控源
                 source.last_discovered_at = datetime.now(timezone.utc) # 更新监控源最近执行时间
+                self.db.commit()  # 每个源处理完先提交；多源可能搜到同一仓库，立即提交可避免重复插入撞唯一索引。
             job.status = "succeeded" # 全部执行成功后标记成功
             job.progress = counters # 把统计数据写进任务进度
             job.finished_at = datetime.now(timezone.utc) # 记录任务结束时间
