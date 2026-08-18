@@ -220,3 +220,16 @@ VALUES
     ('schedule_daily_digest', 'daily_digest', '0 9 * * *', 'Asia/Shanghai', 1)
 ON DUPLICATE KEY UPDATE id = id;
 
+
+-- 运行时配置表：保存可在后台页面修改的 SMTP/LLM/GitHub 等配置。
+-- 服务启动时用它覆盖 .env 的同名默认值；页面修改后热更新生效。
+CREATE TABLE IF NOT EXISTS app_configs (
+    `key` VARCHAR(100) NOT NULL COMMENT '配置名，例如 SMTP_HOST、LLM_MODEL',
+    `value` TEXT COMMENT '配置值；敏感字段允许明文存储，接口回显时脱敏',
+    `category` VARCHAR(50) NOT NULL DEFAULT 'general' COMMENT '分组：github、smtp、llm、hot、scheduler',
+    `value_type` VARCHAR(20) NOT NULL DEFAULT 'str' COMMENT '类型：str、int、bool、float',
+    `is_secret` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否敏感字段（密码、Token、API Key）',
+    `description` VARCHAR(255) COMMENT '中文说明，页面展示',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '最近修改时间',
+    PRIMARY KEY (`key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运行时配置表';

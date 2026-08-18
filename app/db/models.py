@@ -455,3 +455,22 @@ class Schedule(Base):  # Schedule 类对应 schedules 表。
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime)  # 该调度最近一次实际运行时间。
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())  # 创建时间由数据库生成。
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 更新时间由数据库维护。
+
+
+class AppConfig(Base):  # AppConfig 类对应 app_configs 表。
+    """运行时配置表 ORM 模型。
+
+    保存 SMTP、LLM、GitHub 等可以在后台页面修改的配置。
+    服务启动时用它覆盖 settings 单例;页面修改后热更新生效。
+    表字段用 key 做主键，和 .env 的配置名一一对应。
+    """
+
+    __tablename__ = "app_configs"  # 告诉 SQLAlchemy：这个类对应数据库里的 app_configs 表。
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)  # 配置名，例如 SMTP_HOST、LLM_MODEL。
+    value: Mapped[str | None] = mapped_column(Text)  # 配置值；敏感字段允许明文存储，接口回显时脱敏。
+    category: Mapped[str] = mapped_column(String(50), nullable=False, default="general")  # 分组：github、smtp、llm、hot、scheduler。
+    value_type: Mapped[str] = mapped_column(String(20), nullable=False, default="str")  # str、int、bool、float，页面渲染和类型转换用。
+    is_secret: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)  # 是否敏感字段（密码、Token、API Key）。
+    description: Mapped[str | None] = mapped_column(String(255))  # 中文说明，页面展示。
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())  # 最近修改时间。
