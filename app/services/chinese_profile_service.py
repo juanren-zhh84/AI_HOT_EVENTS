@@ -2,6 +2,7 @@ import json
 import logging
 
 from app.services.llm_client import LLMClient
+from app.services.text_sanitizer import clean_display_list, clean_display_text
 
 logger = logging.getLogger(__name__)
 
@@ -71,16 +72,16 @@ class ChineseProfileService:
             logger.warning("Failed to parse LLM profile JSON: %s", exc)
 
             return None  # 返回 None，让上层走兜底。
-        summary = str(data.get("summary") or "").strip() # 提取summary并去掉空白
-        features = self._normalize_list(data.get("features"))  # 提取 features，保证是字符串数组。
-        audience = self._normalize_list(data.get("audience"))  # 提取 audience，保证是字符串数组。
-        highlights = self._normalize_list(data.get("highlights"))  # 提取 highlights，保证是字符串数组。
+        summary = clean_display_text(data.get("summary"), max_length=120)  # 提取 summary 并去掉 Markdown/HTML 污染。
+        features = clean_display_list(data.get("features"), max_items=5, item_max_length=120)  # 提取 features，保证是干净字符串数组。
+        audience = clean_display_list(data.get("audience"), max_items=3, item_max_length=120)  # 提取 audience，保证是干净字符串数组。
+        highlights = clean_display_list(data.get("highlights"), max_items=5, item_max_length=120)  # 提取 highlights，保证是干净字符串数组。
 
         if not summary:
             return None
 
         return {
-            "summary": summary[:120],  # 再做一次长度保护，避免模型输出过长。
+            "summary": summary,  # 已经做过长度和纯文本保护。
             "features": features[:5] or ["项目提供了可复用的开源能力。"],  # 保证 features 至少有一条。
             "audience": audience[:3] or ["关注 AI 应用开发的技术读者。"],  # 保证 audience 至少有一条。
             "highlights": highlights[:5] or ["项目近期热度较高，值得关注。"],  # 保证 highlights 至少有一条。
@@ -88,6 +89,7 @@ class ChineseProfileService:
         }
 
     def _normalize_list(self, value):
+        """兼容旧调用；新画像解析路径使用 clean_display_list。"""
         if isinstance(value, list):  # 如果模型按要求返回数组。
             return [str(item).strip() for item in value if str(item).strip()]  # 去掉空值并转成字符串。
         if isinstance(value, str) and value.strip():  # 如果模型误返回字符串。

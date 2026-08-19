@@ -1,10 +1,12 @@
 import smtplib  # Python 标准库 SMTP 客户端，用来真正发送邮件。
+import html  # HTML 转义，避免 README/LLM 内容破坏邮件结构。
 from datetime import UTC, date, datetime  # UTC 统一时间；date 表示日报日期；datetime 记录发送时间。
 from email.message import EmailMessage  # 用来构造一封同时包含纯文本和 HTML 的邮件。
 from sqlalchemy import select  # SQLAlchemy 2.x 推荐查询写法。
 from sqlalchemy.orm import Session  # 数据库会话类型。
 from app.core.config import settings  # 读取 SMTP、发件人等配置。
 from app.db.models import EmailDelivery, EmailReport, HotProject, Subscriber  # 导入邮件、热点、订阅者 ORM 模型。
+from app.services.text_sanitizer import clean_display_text  # 清洗 README/Markdown/HTML 污染内容。
 
 class EmailDigestService:
     """生成并发送Github热点项目日报"""
@@ -133,23 +135,30 @@ class EmailDigestService:
 
     def _build_html_content(self, report_date: date, hot_projects: list[HotProject]) -> str:  # 生成 HTML 邮件。
         rows = []  # 保存每个项目的 HTML 块。
+        cell_style = "padding:8px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word;"
+        metric_style = f"{cell_style}white-space:nowrap;"
         for item in hot_projects:  # 遍历热点项目。
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
-            summary = self._get_project_summary(item)  # 优先获取中文项目简介。
-            highlights = self._get_project_highlights(item)  # 优先获取中文项目亮点。
+            repo_name = html.escape(clean_display_text(repo.full_name, max_length=120, default="未知项目"), quote=True)
+            repo_url = html.escape(str(repo.html_url or ""), quote=True)
+            language = html.escape(clean_display_text(repo.primary_language, max_length=40, default="未知"), quote=True)
+            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="暂无简介")
+            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="暂无亮点")
+            summary_html = html.escape(summary, quote=True)
+            highlights_html = html.escape(highlights, quote=True)
             rows.append(  # 添加一个项目块。
                 f"""
                 <tr>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">{item.rank_no}</td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">
-                        <a href="{repo.html_url}" target="_blank">{repo.full_name}</a><br>
-                        <span style="color:#666;">{summary}</span><br>
-                        <span style="color:#999;">{highlights}</span>
+                    <td style="{metric_style}">{item.rank_no}</td>
+                    <td style="{cell_style}">
+                        <a href="{repo_url}" target="_blank">{repo_name}</a><br>
+                        <span style="color:#666;">{summary_html}</span><br>
+                        <span style="color:#999;">{highlights_html}</span>
                     </td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">{repo.primary_language or "未知"}</td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">{item.stars}</td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">+{item.stars_delta_24h}</td>
-                    <td style="padding:8px;border-bottom:1px solid #eee;">+{item.stars_delta_7d}</td>
+                    <td style="{metric_style}">{language}</td>
+                    <td style="{metric_style}">{item.stars}</td>
+                    <td style="{metric_style}">+{item.stars_delta_24h}</td>
+                    <td style="{metric_style}">+{item.stars_delta_7d}</td>
                 </tr>
                 """
             )
@@ -160,15 +169,15 @@ class EmailDigestService:
         <html>
         <body style="font-family:Arial,'Microsoft YaHei',sans-serif;color:#222;">
             <h2>GitHub 热点项目日报 - {report_date.isoformat()}</h2>
-            <table style="border-collapse:collapse;width:100%;font-size:14px;">
+            <table style="border-collapse:collapse;width:100%;font-size:14px;table-layout:fixed;">
                 <thead>
                     <tr>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">排名</th>
+                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:48px;">排名</th>
                         <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">项目</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">语言</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">Stars</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">24h</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">7d</th>
+                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:86px;">语言</th>
+                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:78px;">Stars</th>
+                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:62px;">24h</th>
+                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:62px;">7d</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -187,13 +196,15 @@ class EmailDigestService:
 
         for item in hot_projects:  # 遍历热点项目。
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
-            summary = self._get_project_summary(item)  # 优先获取中文项目简介。
-            highlights = self._get_project_highlights(item)  # 优先获取中文项目亮点。
-            lines.append(f"{item.rank_no}. {repo.full_name}")  # 排名和仓库名。
+            repo_name = clean_display_text(repo.full_name, max_length=120, default="未知项目")
+            language = clean_display_text(repo.primary_language, max_length=40, default="未知")
+            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="暂无简介")
+            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="暂无亮点")
+            lines.append(f"{item.rank_no}. {repo_name}")  # 排名和仓库名。
             lines.append(f"   简介: {summary}")  # 展示中文简介。
             lines.append(f"   亮点: {highlights}")  # 展示中文亮点。
             lines.append(f"   Stars: {item.stars}，24h +{item.stars_delta_24h}，7d +{item.stars_delta_7d}")  # 指标。
-            lines.append(f"   语言: {repo.primary_language or '未知'}")  # 主要语言。
+            lines.append(f"   语言: {language}")  # 主要语言。
             lines.append(f"   地址: {repo.html_url}")  # GitHub 地址。
             lines.append("")  # 空行分隔。
         return "\n".join(lines)  # 拼成纯文本。
