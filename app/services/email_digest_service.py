@@ -135,30 +135,37 @@ class EmailDigestService:
 
     def _build_html_content(self, report_date: date, hot_projects: list[HotProject]) -> str:  # 生成 HTML 邮件。
         rows = []  # 保存每个项目的 HTML 块。
-        cell_style = "padding:8px;border-bottom:1px solid #eee;vertical-align:top;word-break:break-word;"
-        metric_style = f"{cell_style}white-space:nowrap;"
+        base_cell_style = "padding:8px;border-bottom:1px solid #eee;vertical-align:top;"
+        project_cell_style = f"{base_cell_style}word-break:break-word;overflow-wrap:anywhere;"
+        metric_style = f"{base_cell_style}white-space:nowrap;"
         for item in hot_projects:  # 遍历热点项目。
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
             repo_name = html.escape(clean_display_text(repo.full_name, max_length=120, default="未知项目"), quote=True)
-            repo_url = html.escape(str(repo.html_url or ""), quote=True)
+            repo_url = html.escape(clean_display_text(repo.html_url, max_length=200, default=""), quote=True)
             language = html.escape(clean_display_text(repo.primary_language, max_length=40, default="未知"), quote=True)
-            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="暂无简介")
-            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="暂无亮点")
-            summary_html = html.escape(summary, quote=True)
-            highlights_html = html.escape(highlights, quote=True)
+            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="")
+            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="")
+            summary_block = ""
+            if summary:
+                summary_html = html.escape(summary, quote=True)
+                summary_block = f'<span class="repo-summary" style="color:#666;display:block;margin-top:2px;">{summary_html}</span>'
+            highlights_block = ""
+            if highlights:
+                highlights_html = html.escape(highlights, quote=True)
+                highlights_block = f'<span class="repo-highlights" style="color:#999;display:block;margin-top:2px;">{highlights_html}</span>'
             rows.append(  # 添加一个项目块。
                 f"""
                 <tr>
-                    <td style="{metric_style}">{item.rank_no}</td>
-                    <td style="{cell_style}">
-                        <a href="{repo_url}" target="_blank">{repo_name}</a><br>
-                        <span style="color:#666;">{summary_html}</span><br>
-                        <span style="color:#999;">{highlights_html}</span>
+                    <td class="metric-cell" style="{metric_style}">{item.rank_no}</td>
+                    <td class="project-cell" style="{project_cell_style}">
+                        <a class="repo-name" href="{repo_url}" target="_blank" rel="noopener noreferrer">{repo_name}</a>
+                        {summary_block}
+                        {highlights_block}
                     </td>
-                    <td style="{metric_style}">{language}</td>
-                    <td style="{metric_style}">{item.stars}</td>
-                    <td style="{metric_style}">+{item.stars_delta_24h}</td>
-                    <td style="{metric_style}">+{item.stars_delta_7d}</td>
+                    <td class="metric-cell" style="{metric_style}">{language}</td>
+                    <td class="metric-cell" style="{metric_style}">{item.stars}</td>
+                    <td class="metric-cell" style="{metric_style}">+{item.stars_delta_24h}</td>
+                    <td class="metric-cell" style="{metric_style}">+{item.stars_delta_7d}</td>
                 </tr>
                 """
             )
@@ -167,17 +174,65 @@ class EmailDigestService:
 
         return f"""
         <html>
-        <body style="font-family:Arial,'Microsoft YaHei',sans-serif;color:#222;">
+        <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <style>
+                body {{ font-family:Arial,'Microsoft YaHei',sans-serif;color:#222;margin:0;padding:16px; }}
+                .digest-table {{ border-collapse:collapse;width:100%;font-size:14px;table-layout:fixed; }}
+                .digest-table th {{ text-align:left;padding:8px;border-bottom:2px solid #ddd; }}
+                .digest-table .rank-col {{ width:48px; }}
+                .digest-table .language-col {{ width:86px; }}
+                .digest-table .stars-col {{ width:78px; }}
+                .digest-table .delta-col {{ width:62px; }}
+                .repo-name {{ color:#0366d6;text-decoration:none;display:block;word-break:break-word; }}
+                @media only screen and (max-width: 640px) {{
+                    body {{ padding:12px !important; }}
+                    .digest-table, .digest-table thead, .digest-table tbody, .digest-table tr, .digest-table td, .digest-table th {{
+                        display:block !important;
+                        width:100% !important;
+                    }}
+                    .digest-table thead {{ display:none !important; }}
+                    .digest-table tr {{
+                        border:1px solid #eee !important;
+                        margin:0 0 12px 0 !important;
+                        padding:4px 0 !important;
+                    }}
+                    .digest-table td {{
+                        border-bottom:none !important;
+                        padding:6px 12px !important;
+                    }}
+                    .digest-table .metric-cell {{
+                        display:inline-block !important;
+                        width:auto !important;
+                        padding-right:12px !important;
+                        white-space:nowrap !important;
+                    }}
+                    .digest-table .project-cell {{
+                        padding-bottom:4px !important;
+                    }}
+                    .repo-name {{
+                        white-space:nowrap !important;
+                        overflow:hidden !important;
+                        text-overflow:ellipsis !important;
+                    }}
+                    .repo-summary, .repo-highlights {{
+                        white-space:normal !important;
+                        word-break:break-word !important;
+                    }}
+                }}
+            </style>
+        </head>
+        <body>
             <h2>GitHub 热点项目日报 - {report_date.isoformat()}</h2>
-            <table style="border-collapse:collapse;width:100%;font-size:14px;table-layout:fixed;">
+            <table class="digest-table">
                 <thead>
                     <tr>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:48px;">排名</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;">项目</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:86px;">语言</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:78px;">Stars</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:62px;">24h</th>
-                        <th style="text-align:left;padding:8px;border-bottom:2px solid #ddd;width:62px;">7d</th>
+                        <th class="rank-col">排名</th>
+                        <th>项目</th>
+                        <th class="language-col">语言</th>
+                        <th class="stars-col">Stars</th>
+                        <th class="delta-col">24h</th>
+                        <th class="delta-col">7d</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -198,14 +253,17 @@ class EmailDigestService:
             repo = item.repository  # 通过 ORM 关系拿到仓库信息。
             repo_name = clean_display_text(repo.full_name, max_length=120, default="未知项目")
             language = clean_display_text(repo.primary_language, max_length=40, default="未知")
-            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="暂无简介")
-            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="暂无亮点")
+            summary = clean_display_text(self._get_project_summary(item), max_length=120, default="")
+            highlights = clean_display_text(self._get_project_highlights(item), max_length=160, default="")
+            repo_url = clean_display_text(repo.html_url, max_length=200, default="")
             lines.append(f"{item.rank_no}. {repo_name}")  # 排名和仓库名。
-            lines.append(f"   简介: {summary}")  # 展示中文简介。
-            lines.append(f"   亮点: {highlights}")  # 展示中文亮点。
+            if summary:
+                lines.append(f"   简介: {summary}")  # 展示中文简介。
+            if highlights:
+                lines.append(f"   亮点: {highlights}")  # 展示中文亮点。
             lines.append(f"   Stars: {item.stars}，24h +{item.stars_delta_24h}，7d +{item.stars_delta_7d}")  # 指标。
             lines.append(f"   语言: {language}")  # 主要语言。
-            lines.append(f"   地址: {repo.html_url}")  # GitHub 地址。
+            lines.append(f"   地址: {repo_url}")  # GitHub 地址。
             lines.append("")  # 空行分隔。
         return "\n".join(lines)  # 拼成纯文本。
 
@@ -276,13 +334,13 @@ class EmailDigestService:
         profile = self._get_project_profile(hot_project)  # 获取项目画像。
         if profile and profile.summary:  # 如果已经生成中文画像。
             return profile.summary  # 优先返回中文 summary。
-        return repo.description or "暂无简介"  # 没有画像时降级使用 GitHub 原始描述。
+        return repo.description or ""  # 没有画像时降级使用 GitHub 原始描述；没有内容就不展示。
 
     def _get_project_highlights(self, hot_project: HotProject) -> str:  # 获取邮件中展示的项目亮点。
         profile = self._get_project_profile(hot_project)  # 获取项目画像。
         if profile and profile.highlights:  # 如果画像里有中文亮点。
             return "；".join(profile.highlights[:3])  # 展示前三条，避免邮件太长。
-        return hot_project.reason or "暂无亮点"  # 没有画像时降级使用热点入选原因。
+        return hot_project.reason or ""  # 没有亮点时不展示占位文案。
 
 
 

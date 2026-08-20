@@ -1,5 +1,6 @@
 import html
 import re
+import unicodedata
 from typing import Any
 
 
@@ -7,9 +8,23 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
 _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _MARKDOWN_HEADING_RE = re.compile(r"(?m)^\s{0,3}#{1,6}\s*")
+_PROFILE_BOILERPLATE_RE = re.compile(
+    r"是一个与\s*AI/?Agent\s*相关的开源项目\s*[,，;；:：]?\s*原始简介为\s*[:：]?\s*",
+    re.IGNORECASE,
+)
+_PROJECT_STARS_RE = re.compile(
+    r"项目当前拥有\s*\d+\s*个\s*(?:GitHub\s+)?stars?\b|项目当前拥有\s*\d+\s*个\s*星标",
+    re.IGNORECASE,
+)
 _GITHUB_STARS_RE = re.compile(r"\bGitHub\s+stars\b", re.IGNORECASE)
-_MATCHED_TAGS_RE = re.compile(r"\bMatched\s+tags\s*:\s*[^.;，。；\n]*", re.IGNORECASE)
+_MATCHED_TAGS_RE = re.compile(r"(?:命中标签|Matched\s+tags)\s*[:：]\s*[^.;，。；\n]*", re.IGNORECASE)
 _WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _strip_control_characters(text: str) -> str:
+    """Remove invisible and non-printable characters that break email rendering."""
+    normalized = unicodedata.normalize("NFKC", text)
+    return "".join(ch for ch in normalized if not unicodedata.category(ch).startswith("C"))
 
 
 def clean_display_text(value: Any, *, max_length: int | None = None, default: str = "") -> str:
@@ -18,9 +33,12 @@ def clean_display_text(value: Any, *, max_length: int | None = None, default: st
         return default
 
     text = html.unescape(str(value))
+    text = _strip_control_characters(text)
     text = _MARKDOWN_HEADING_RE.sub("", text)
     text = _MARKDOWN_IMAGE_RE.sub(" ", text)
     text = _MARKDOWN_LINK_RE.sub(r"\1", text)
+    text = _PROFILE_BOILERPLATE_RE.sub("", text)
+    text = _PROJECT_STARS_RE.sub(" ", text)
     text = _HTML_TAG_RE.sub(" ", text)
     text = _GITHUB_STARS_RE.sub(" ", text)
     text = _MATCHED_TAGS_RE.sub(" ", text)

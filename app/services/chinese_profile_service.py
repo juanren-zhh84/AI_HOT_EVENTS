@@ -36,6 +36,8 @@ class ChineseProfileService:
             "你是一个面向中文技术读者的开源项目分析助手。"  # 定义模型角色。
             "你需要根据 GitHub README 或 description 生成客观、克制、可读的中文项目画像。"  # 定义输出目标。
             "不要编造输入文本中没有的信息。"  # 防止幻觉。
+            "不要输出“是一个与 AI/Agent 相关的开源项目”“原始简介为”“命中标签”“GitHub stars”等说明性前缀或尾注。"  # 避免模板化废话。
+            "不要在 summary 或 highlights 里写仓库星标数量。"  # 星标是结构化字段，不要混进简介。
             "只输出 JSON，不要输出 Markdown，不要输出解释。"  # 降低 JSON 解析失败概率。
         )
 
@@ -84,7 +86,7 @@ class ChineseProfileService:
             "summary": summary,  # 已经做过长度和纯文本保护。
             "features": features[:5] or ["项目提供了可复用的开源能力。"],  # 保证 features 至少有一条。
             "audience": audience[:3] or ["关注 AI 应用开发的技术读者。"],  # 保证 audience 至少有一条。
-            "highlights": highlights[:5] or ["项目近期热度较高，值得关注。"],  # 保证 highlights 至少有一条。
+            "highlights": highlights[:5],  # 没有亮点时保存空列表，展示层不输出占位文案。
             "status": "complete",  # 模型成功生成时标记 complete。
         }
 

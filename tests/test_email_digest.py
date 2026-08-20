@@ -43,11 +43,40 @@ def test_email_digest_builder_sanitizes_markdown_html_profile_content(fixed_repo
     assert "dirty/profile-demo" in html_content
     assert "quick start" in html_content
     assert "quick start" in text_content
-    assert "&lt;script&gt;" in html_content
+    assert "https://github.com/dirty/profile-demo?next=" in html_content
     assert "<script>" not in html_content
     for polluted in ("<h1>", "</h1>", "# Dirty Title", "![", "](", "<p", "</p>", "GitHub stars", "Matched tags"):
         assert polluted not in html_content
         assert polluted not in text_content
+
+
+def test_email_digest_builder_adds_mobile_responsive_layout(fixed_report_date):
+    """邮件 HTML 要带移动端断点，避免窄屏把项目名压成一列。"""
+    service = EmailDigestService(db=None)
+    repository = SimpleNamespace(
+        full_name="deepseek-ai/deepseek-harness",
+        html_url="https://github.com/deepseek-ai/deepseek-harness",
+        primary_language="TypeScript",
+        description="safe fallback",
+        profile=SimpleNamespace(summary="DeepSeek Harness: Everything is a Plugin.", highlights=["Composable agents."]),
+    )
+    hot_project = SimpleNamespace(
+        rank_no=1,
+        repository=repository,
+        stars=123,
+        stars_delta_24h=12,
+        stars_delta_7d=35,
+        reason="测试热点项目。",
+    )
+
+    html_content = service._build_html_content(fixed_report_date, [hot_project])
+
+    assert 'meta name="viewport"' in html_content
+    assert "@media only screen and (max-width: 640px)" in html_content
+    assert 'class="digest-table"' in html_content
+    assert 'class="project-cell"' in html_content
+    assert 'class="repo-name"' in html_content
+    assert 'class="metric-cell"' in html_content
 
 
 def test_email_digest_dry_run_creates_report_without_deliveries(
